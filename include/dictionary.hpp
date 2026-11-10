@@ -1,3 +1,7 @@
 #pragma once
+#include "hash_table.hpp"
 
-#include "dictionary.cpp"
+template <typename T, typename K>
+class dictionary{
+    hash_table<T, K> table;
+};

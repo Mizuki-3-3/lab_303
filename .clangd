@@ -1,7 +1,7 @@
 CompileFlags:
     Add:
         - -IC:\Users\kamila\labs\3_сем\lab_003\include
-        - -IC:\Users\kamila\labs\3_сем\lab_003\src
+        - -IC:\Users\kamila\labs\3_сем\lab_001\include
         - -IC:\Users\kamila\labs\2_сем\lab_003\include
         - -IC:\Users\kamila\labs\2_сем\lab_003\templates
         - -std=c++20

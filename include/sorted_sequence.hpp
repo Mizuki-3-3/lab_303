@@ -1,8 +1,7 @@
 #pragma once
-#include "b_tree.hpp"
+#include "bp_tree.hpp"
 
+template <typename T>
 class sorted_sequence{
-    b_tree<int, 4> tree;
+    bp_tree<int, T> tree;
 };
-
-#include "sorted_sequence.cpp"

@@ -1,17 +1,16 @@
 #include "bp_tree.hpp"
 #include <iostream>
+#include "hash_table.hpp"
+
 
 int main(){
-    bp_tree<int, int> tree;
-    for (int i = 0; i<1100; ++i){
-        if(tree.insert(i, i)){
-        std::cout<<"inserted "<<i<<std::endl;}
+
+    hash_table <int, int> table;
+    for (int i = 1; i<100; i++){
+        table.insert(i,i);
+        if (table.search(i)->second)std::cout << i<< "was inserted \n";
+        
     }
-    if(tree.insert(6, 6)){
-        std::cout<<"inserted "<<6<<std::endl;}
-    for (int i = 0; i<1100; ++i){
-        if (tree.search(i)!=i){std::cout<<"error in search"<<std::endl;}
-        else{std::cout<<"found "<<i<<std::endl;}
-    }
+
     return 0;
 }

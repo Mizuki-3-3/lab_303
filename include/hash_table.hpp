@@ -3,28 +3,31 @@
 #include <array_seq.hpp>
 #include <utility>
 #include "shared_ptr.hpp"
+#include "pair.hpp"
 
-
-template <typename T, typename K, typename HASH = std::hash<K>>
+template <typename T, typename K, typename H = std::hash<K>>
 class hash_table{
 private:
     struct node{
-        std::pair<K, T> kv;
+        pair<K, T> kv;
         shared_ptr<node> next;
-        unsigned int cash;
-        node(std::pair<K, T> kv_, shared_ptr<node> next_, unsigned int cash_):kv(kv_), next(next_), cash(cash_){}
+        unsigned int cache;
+        node(pair<K, T> kv_, shared_ptr<node> next_, unsigned int cash_):kv(kv_), next(next_), cache(cash_){}
     };
-    static constexpr float max_load_factor = 0.75;
-    HASH hash_func;
+    static inline const float max_load_factor = 0.75;
+    H hash_func;
     array_seq<shared_ptr<node>> table;//будет хранить указатели на ноду идущую перед искомым бакетом
-    shared_ptr<node> fake_node;//по совместительству она идет перед первой настоящей нодой
+    
+    // указатель на ноду, которая указывает на последний
+    // часть механизма эффективной итерации по элементам
+    shared_ptr<node> prev_head;//по совместительству она идет перед первой настоящей нодой
     size_t node_count=0;
 
 
     float load_factor()const{
         return static_cast<float>(node_count) / table.size();
     }
-    unsigned int hash(const K& key) const{
+    unsigned int get_table_idx(const K& key) const{
         return hash_func(key) % table.size();
     }
     void rehash(size_t new_size){
@@ -32,7 +35,7 @@ private:
             return;
         }
         hash_table new_table(new_size);
-        auto current = fake_node->next;
+        auto current = prev_head->next;
         while (current){
             new_table.insert(current->kv.first, current->kv.second);
             current = current->next;
@@ -46,8 +49,8 @@ public:
         shared_ptr<node> cur = shared_ptr<node>();
     public:
         explicit iterator(const shared_ptr<node>& noda = shared_ptr<node>()):cur(noda){}
-        std::pair<K, T>& operator*() const{return cur->kv;}
-        std::pair<K, T>* operator->()  const{return &cur->kv;}
+        pair<K, T>& operator*() const{return cur->kv;}
+        pair<K, T>* operator->()  const{return &cur->kv;}
         iterator& operator++(){
             cur=cur->next;
             return *this;
@@ -74,8 +77,8 @@ public:
     public:
         explicit const_iterator(const shared_ptr<node>& ptr = shared_ptr<node>()) noexcept: cur(ptr) {}
         const_iterator(const const_iterator& other) : cur(other.cur) {}
-        const std::pair<K, T>& operator*() const{return cur->kv;}
-        const std::pair<K, T>* operator->()  const{return &cur->kv;}
+        const pair<K, T>& operator*() const{return cur->kv;}
+        const pair<K, T>* operator->()  const{return &cur->kv;}
         const_iterator& operator++(){
             cur=cur->next;
             return *this;
@@ -100,7 +103,7 @@ public:
 
     //copy
     hash_table(const hash_table& other): hash_func(other.hash_func){
-        auto current = other.fake_node->next;
+        auto current = other.prev_head->next;
         while (current){
             this->insert(current->kv.first, current->kv.second);
         }
@@ -108,7 +111,7 @@ public:
 
     hash_table& operator=(const hash_table& other){
         hash_func = other.hash_func;
-        auto current = other.fake_node->next;
+        auto current = other.prev_head->next;
         while (current){
             this->insert(current->kv.first, current->kv.second);
         }
@@ -116,56 +119,64 @@ public:
     }
     //move
     hash_table(hash_table&& other): node_count(other.node_count){
-        std::swap(fake_node, other.fake_node);
+        std::swap(prev_head, other.prev_head);
         std::swap(table, other.table);
         std::swap(hash_func, other.hash_func);
     }
     hash_table& operator=(hash_table&& other){
         std::swap(node_count, other.node_count);
-        std::swap(fake_node, other.fake_node);
+        std::swap(prev_head, other.prev_head);
         std::swap(table, other.table);
         std::swap(hash_func, other.hash_func);
         return *this;
     }
 
-    ~hash_table() = default;//на этом правило пяти ВСЁ
+    ~hash_table(){
+        shared_ptr<node> cur = prev_head;
+        prev_head.reset();
+        while (cur){
+            shared_ptr<node> next = cur->next;
+            cur->next.reset();
+            cur = next;
+        }
+    }//на этом правило пяти ВСЁ
 
     bool insert(const K& key, const T& value){
-        unsigned int id = hash(key);
-        if (!fake_node){
-            auto tmp = shared_ptr<node>::make_shared(std::pair<K, T>(key, value), shared_ptr<node>(), id);
-            fake_node = shared_ptr<node>::make_shared(std::pair<K, T>(), tmp, 0);
-            table[id] = fake_node;
+        unsigned int idx = get_table_idx(key);
+        if (!prev_head){
+            auto tmp = shared_ptr<node>::make_shared(pair<K, T>(key, value), shared_ptr<node>(), idx);
+            prev_head = shared_ptr<node>::make_shared(pair<K, T>(), tmp, 0);
+            table[idx] = prev_head;
             node_count=1;
             return true;
         }
         if (search(key) != end()){return false;}
-        if (!table[id]){//вааааааааааааааай мама, надо еще проверять что такого ключа нет
-            auto tmp = shared_ptr<node>::make_shared(std::pair<K, T>(key, value), fake_node->next, id);
-            table[fake_node->next->cash] = tmp;
-            fake_node->next = tmp;
-            table[id] = fake_node;
+        if (!table[idx]){//вааааааааааааааай мама, надо еще проверять что такого ключа нет
+            auto tmp = shared_ptr<node>::make_shared(pair<K, T>(key, value), prev_head->next, idx);
+            table[prev_head->next->cache] = tmp;
+            prev_head->next = tmp;
+            table[idx] = prev_head;
         }else{
-            shared_ptr<node> cur = table[id];
-            while(cur->next && cur->next->cash==id){
+            shared_ptr<node> cur = table[idx];
+            while(cur->next && cur->next->cache==idx){
                 cur = cur->next;
             }
-            auto tmp = shared_ptr<node>::make_shared(std::pair<K, T>(key, value), cur->next, id);
-            if (cur->next) table[cur->next->cash] = tmp;
+            auto tmp = shared_ptr<node>::make_shared(pair<K, T>(key, value), cur->next, idx);
+            if (cur->next) table[cur->next->cache] = tmp;
             cur->next = tmp;
         }
-        if (load_factor()>=max_load_factor){rehash(table.size()*2);}
         node_count++;
+        if (load_factor()>=max_load_factor){rehash(table.size()*2);}
         return true;
     }
 
     iterator search(const K& key)const{
-        if (!fake_node){return iterator();}
-        unsigned int id = hash(key);
+        if (!prev_head){return iterator();}
+        unsigned int id = get_table_idx(key);
         shared_ptr<node> cur = table[id];
         if (!cur){return iterator();}
         cur = cur->next;
-        while (cur && cur->kv.first != key && cur->cash==id){
+        while (cur && cur->kv.first != key && cur->cache==id){
             cur= cur->next;
         }
         if (!cur || cur->kv.first != key){return iterator();}
@@ -175,27 +186,29 @@ public:
 
 
     bool remove(const K& key){//возвращаем смогли удалить или нет
-        unsigned int id = hash(key);
+        unsigned int id = get_table_idx(key);
         if (!table[id]){return false;}
         shared_ptr<node> prev = table[id], cur = prev->next;
         
-        while (cur && cur->kv.first != key && cur->cash==id){
+        while (cur && cur->kv.first != key && cur->cache==id){
             prev = cur;
             cur= cur->next;
         }
-        if (!cur || cur&&cur->kv.first!=key){return false;}//не можем удалить если не найдено, а если не найдено то  мы перешли в некст бакет или перешагнули конец
-        if (prev == table[id]){
-            if (!cur->next || cur->cash!=cur->next->cash){//вроде это все условия для одноэлем бакета
-                table[id].reset();
-            }
-        }
-        prev->next = cur->next;
-        node_count--;
+        if (!cur || cur->cache != id){return false;}//не можем удалить если не найдено, а если не найдено то  мы перешли в некст бакет или перешагнули конец
+        shared_ptr<node> next = cur->next;
+        bool single = (prev == table[id]) && (!next || next->cache != id);  // cur единственный в корзине
+
+        if (next && next->cache != id) table[next->cache] = prev;  // у следующей корзины новый предшественник
+        if (single) table[id].reset();
+        prev->next = next;
+
+        --node_count;
+        if (!prev_head->next){prev_head.reset();}
         return true;
     }  
 
-    iterator begin(){return iterator(fake_node?fake_node->next:shared_ptr<node>());}
-    const_iterator begin()const{return const_iterator(fake_node?fake_node->next:shared_ptr<node>());}
+    iterator begin(){return iterator(prev_head?prev_head->next:shared_ptr<node>());}
+    const_iterator begin()const{return const_iterator(prev_head?prev_head->next:shared_ptr<node>());}
 
     iterator end(){return iterator();}
     const_iterator end()const{return const_iterator();}
